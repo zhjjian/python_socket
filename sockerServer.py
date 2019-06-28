@@ -218,8 +218,8 @@ def newthread_(conn,address):
 #打印存活线程
 def thread_log(thread_list):
 
-    logger.info("============================================={}".format(threading.current_thread().getName()))
-    logger.info("线程数量：{}".format(len(thread_list)))
+    logger.info("    ============================================={}".format(threading.current_thread().getName()))
+    logger.info("    原线程数量：{}".format(len(thread_list)))
     #定义一个空数组，用于保存还存活的线程
     cur_thread_list=[]
     for i in range(len(thread_list)):
@@ -230,10 +230,11 @@ def thread_log(thread_list):
             pass
         else:
             cur_thread_list.append(cur_thread)
-            logger.info('当前存在线程：{}'.format(thread_name))
+            logger.info('    当前存在线程：{}'.format(thread_name))
     #更新线程池
-    thread_list=cur_thread
-    logger.info("=============================================")
+    thread_list=cur_thread_list
+    logger.info("    现线程数量：{}".format(len(thread_list)))
+    logger.info("    =============================================")
 if __name__ == '__main__':
    
     hostname = socket.gethostname()
