@@ -9,6 +9,9 @@ import sys
 import operator
 import logging
 import logging.handlers
+import re
+import os
+import ssl
 #接收连接池
 g_conn_pool = []  
 #控制端地址
@@ -24,7 +27,7 @@ logger.setLevel(level = logging.INFO)
 # 添加TimedRotatingFileHandler
 # 定义一个1天换一次log文件的handler
 # 保留3个旧log文件
-handler = logging.handlers.TimedRotatingFileHandler(filename="log.log",when='D',interval=1,backupCount=3,encoding='utf-8')
+handler = logging.handlers.TimedRotatingFileHandler(filename="./log/logging.log",when='D',interval=1,backupCount=3,encoding='utf-8')
 
 
 
@@ -110,28 +113,54 @@ def send_msg(conn,address, msg_bytes):
     return True
 
 
+
+
 #等待接收客户
-def wait_client(sock):
+def wait_client_http(sock):
+    
     global g_conn_pool
     # 新开一个线程，用于接收新连接
     while True:
-        conn, address = sock.accept()
-        data = conn.recv(1024)
-        headers = get_headers(data)
-        response_tpl = "HTTP/1.1 101 Switching Protocols\r\n" \
-                   "Upgrade:websocket\r\n" \
-                   "Connection:Upgrade\r\n" \
-                   "Sec-WebSocket-Accept:%s\r\n" \
-                   "WebSocket-Location:ws://%s%s\r\n\r\n"
- 
-        value = headers['Sec-WebSocket-Key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
-        ac = base64.b64encode(hashlib.sha1(value.encode('utf-8')).digest())
-        response_str = response_tpl % (ac.decode('utf-8'), headers['Host'], headers['url'])
-        conn.send(bytes(response_str, encoding='utf-8'))
-        #将新连接添加到连接池
-        g_conn_pool.append(conn)
-        #新建线程处理连接
-        newthread_(conn,address)
+        try:
+            conn, address = sock.accept()
+        
+            data = conn.recv(1024)
+            resquest_data = data.splitlines()[0]
+            resquest_data = re.match(r"[^/]+/([^\s]*)",str(resquest_data)).group(1) 
+            #print(resquest_data)
+            response_headers = "HTTP/1.1 200 OK \r\n"# 200 表示找到这个资源
+            response_headers += "\r\n" # 空一行与body隔开
+            #判断文件是否存在
+            if resquest_data and os.access(f'./{resquest_data}', os.F_OK):
+                with open(f'./{resquest_data}','rb') as r:
+                    response_body = r.read()
+                # 返回数据给浏览器
+                conn.send(response_headers.encode("utf-8"))   #转码utf-8并send数据到浏览器
+                conn.send(response_body)   #转码utf-8并send数据到浏览器
+                conn.close()
+                #结束本次while
+                continue
+
+
+            headers = get_headers(data)
+            #print(headers)
+            response_tpl = "HTTP/1.1 101 Switching Protocols\r\n" \
+                    "Upgrade:websocket\r\n" \
+                    "Connection:Upgrade\r\n" \
+                    "Sec-WebSocket-Accept:%s\r\n" \
+                    "WebSocket-Location:ws://%s%s\r\n\r\n"
+    
+            value = headers['Sec-WebSocket-Key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+            ac = base64.b64encode(hashlib.sha1(value.encode('utf-8')).digest())
+            response_str = response_tpl % (ac.decode('utf-8'), headers['Host'], headers['url'])
+            conn.send(bytes(response_str, encoding='utf-8'))
+            #将新连接添加到连接池
+            g_conn_pool.append(conn)
+            #新建线程处理连接
+            newthread_(conn,address)
+        except Exception:
+            logger.info('接收到非正常连接')
+        
 
 #消息处理
 def accept_client(conn, address):
@@ -197,14 +226,12 @@ def accept_client(conn, address):
         
 
 def run(hsot):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(host)
-    sock.listen(5)
-    return sock
- 
+    sock_http = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     
- 
+    sock_http.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock_http.bind(host)
+    sock_http.listen(5)
+    return sock_http
     #sock.close()
 def newthread_(conn,address):
     global thread_list
@@ -245,10 +272,21 @@ if __name__ == '__main__':
         host=(sysinfo,int(sys.argv[1]))
     else:
         host=(sysinfo, 8889)
+    try:
+        with open('./html/static/config.js', "r", encoding="utf-8") as f:
+            config_data = f.readlines()
+            config_data[0]="socket = 'ws://{}:{}'\n".format(host[0],host[1])
+        with open(f'./html/static/config.js',"w",encoding="utf-8") as f:
+            f.write(''.join(config_data))
+    except Exception:
+        logger.info('修改控制页面连接地址失败。原因：未找到./html/static/config.js')
+    
     sock=run(host)
     logger.info('socket服务以启动:%s:%d'%host)
     # 新开一个线程，用于接收新连接
-    wait_client(sock)
+    wait_client_http(sock)
+   
+   
 
     
     
